@@ -1,0 +1,3 @@
+Add 'DIGEST' auth-type
+Add multithreaded functionality (and/or test with sipa bash wrapper)
+Add verbosity option to see the request headers on each attempt
