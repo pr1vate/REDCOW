@@ -49,6 +49,10 @@ class HTTP_Auth_Attack(object):
                 http_auth_scheme = http_match_object.group(1)
                 http_auth_realm = http_match_object.group(2)
 
+                if not http_auth_realm:
+                    print("\t--> [\033[91mx\033[0m] - '\033[91mError trying to determine auth realm\033[0m' from '%s'. Exiting.\n") % (self.target)
+                    sys.exit(2)
+
                 if not http_auth_scheme:
                     print("\t--> [\033[91mx\033[0m] - '\033[91mError trying to determine auth scheme\033[0m' from '%s'. Exiting.\n") % (self.target)
                     sys.exit(2)
@@ -65,13 +69,6 @@ class HTTP_Auth_Attack(object):
                             self.digest_auth(_user, _pass)
                     print '\n'
                     print("\t--> [?] - Sorry... could not find a successful username/password combination.\n")
-
-                if not http_auth_realm:
-                    print("\t--> [\033[91mx\033[0m] - '\033[91mError trying to determine auth realm\033[0m' from '%s'. Exiting.\n") % (self.target)
-                    sys.exit(2)
-                else:
-                    print "Return:" + str(r.status_code)
-
 
     #Basic Auth
     def basic_auth(self, _user, _pass):
@@ -108,8 +105,6 @@ class HTTP_Auth_Attack(object):
             sys.exit(1)
         else:
             pass
-
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
