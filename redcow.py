@@ -94,11 +94,6 @@ class Redcow():
         sys.stdout.flush()
         sys.stdout.write('\n')
 
-    def _strip_quotes(self, x):
-        if x.startswith('"') and x.endswith('"'):
-            return x[1:-1]
-        else: return x
-
     def printQueue(self):
         while True:
             if self.queue_print.empty() is not True:
