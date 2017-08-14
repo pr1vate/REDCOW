@@ -24,12 +24,9 @@ class Redcow():
         self.queue_creds = Queue(maxsize=0)
         self.queue_print = Queue(maxsize=0)
         self.thread = []
-        self.attempts = 0
 
         self._motd()
         self._load_creds()
-
-
 
         sys.stdout.write('\n')
         msg = "[+] Checking for HTTP authentication at URL '%s' - " % self.url
@@ -112,7 +109,6 @@ class Redcow():
             else:
                 sleep(0.15)
 
-
     def _break_auth(self):
         while True:
             if self.queue_creds.empty() is not True:
@@ -159,4 +155,3 @@ if __name__ == '__main__':
     oQueue.start()
     Moo.queue_creds.join()
     Moo.queue_print.join()
-
