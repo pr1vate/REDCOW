@@ -25,6 +25,7 @@ class Redcow(object):
         self.__motd()
         self.__check_url()
         self.__load_creds()
+        self.cracked = False
 
         print "[>] Starting to attack authentication using %s threads...\n" % (str(self.workers))
 
@@ -51,6 +52,7 @@ class Redcow(object):
                     sleep(0.1)
 
                 if r.status_code == 200:
+                    self.cracked = True
                     print "\n\n\t[!] Breach was a SUCCESS - User[ \033[92m\033[1m%s\033[0m ] - Pass[ \033[92m\033[1m%s\033[0m ]\n" % (creds["username"], creds["password"])
                     self.queueCreds.task_done()
                     del creds
@@ -144,11 +146,17 @@ if __name__ == '__main__':
     if not args.threads:
         args.threads = 1
 
+    if not str(args.target_url).startswith("http"):
+        args.target_url = "http://" + args.target_url
+
     Moo = Redcow(args.target_url, args.userlist, args.passlist, args.threads)
     Moo.queueCreds.join()
 
     while Moo.queueCreds.empty() != True:
         sleep(0.5)
     else:
-        print "\n\n[>] Sorry, the credentials provided did not work. Try again using different user/pass lists.\n"
-        sys.exit(0)
+        if Moo.cracked is True:
+            sys.exit(0)
+        else:
+            print "\n\n[>] Sorry, the credentials provided did not work. Try again using different user/pass lists.\n"
+            sys.exit(0)
