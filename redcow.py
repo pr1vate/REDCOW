@@ -53,7 +53,7 @@ class Redcow(object):
 
                 if r.status_code == 200:
                     self.cracked = True
-                    print "\n\n\t[!] Breach was a SUCCESS - User[ \033[92m\033[1m%s\033[0m ] - Pass[ \033[92m\033[1m%s\033[0m ]\n" % (creds["username"], creds["password"])
+                    print "\n\n\t[!] Breach was a SUCCESS - User [ \033[92m\033[1m%s\033[0m ] - Pass [ \033[92m\033[1m%s\033[0m ]\n" % (creds["username"], creds["password"])
                     self.queueCreds.task_done()
                     del creds
                 else:
