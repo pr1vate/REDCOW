@@ -139,6 +139,9 @@ class Redcow(object):
                     break
 
                     #sys.exit(0)
+                
+                self.credentials.task_done()
+                    
             else:
                 sleep(0.25)
                 #break/return didnt work
