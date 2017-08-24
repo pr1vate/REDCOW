@@ -186,6 +186,8 @@ if __name__ == '__main__':
         args = parser.parse_args()
     except TypeError:
         Error("The options you provided were not supplied correctly. Please take another look at the examples.")
+        Usage()
+        sys.exit(1)
 
     if args.h_flag:
         Usage()
