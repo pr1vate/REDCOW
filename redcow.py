@@ -22,6 +22,7 @@ class Redcow(object):
         self.workers = workers
         self.s_flag = stdin_flag
         self.credentials = Queue(maxsize=0)
+        self.found = False
         self._realm = ''
         self._schema = ''
 
@@ -71,7 +72,7 @@ class Redcow(object):
 
     def __check_target(self, url=''):
         if self.url:
-            # self.__motd()
+            self.__motd()
             self.__write('\n[?] Checking URL for valid response...', True)
             try:
                 r = requests.get(url)
@@ -106,7 +107,7 @@ class Redcow(object):
         while True:
             while self.credentials.empty() is not True:
                 _cred = self.credentials.get()
-                self.__write('[!] Attempting breach using credentials [User] %15s \t[Pass] %15s' % (
+                self.__write('[!] Attempting breach using credentials: %15s %15s' % (
                 _cred['username'], _cred['password']), True)
                 try:
                     if self._schema == 'basic':
@@ -125,11 +126,12 @@ class Redcow(object):
                     sys.exit(1)
 
                 if r.status_code == 200:
-                    print "\n\n\t\033[92m'%s' Authentication \033[1mBREACH3D!\033[0m\n\t\t       ---\n\t[USER]\033[1m%15s\033[0m\n\t[PASS]\033[1m%15s\033[0m\n" % (self._schema.capitalize(), _cred['username'], _cred['password'])
+                    print "\n\n\t\033[92m'%s' Authentication \033[1mBREACH3D!\033[0m\n\t\t       ---\n\t[USER]\t\033[1m%s\033[0m\n\t[PASS]\t\033[1m%s\033[0m\n" % (self._schema.capitalize(), _cred['username'], _cred['password'])
                     print "\nWaiting for threads to finish...\n"
                     save_stdout = sys.stdout
                     sys.stdout = open('trash', 'w')
                     del _cred
+                    self.found = True
                     self.credentials.task_done()
                     break
                 self.credentials.task_done()
@@ -200,3 +202,7 @@ if __name__ == '__main__':
         thread.start()
 
     MoOo.credentials.join()
+    if MoOo.found is not True:
+        print "\n\n'\033[1m%s\033[0m' Authentication was not Breached... please try again using different userlist(s)/passlist(s)\n" % (MoOo._schema.capitalize())
+
+
